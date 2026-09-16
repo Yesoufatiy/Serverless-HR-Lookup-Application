@@ -28,3 +28,13 @@ output "rest_api_id" {
   # to hunt for it by name.
   value = aws_api_gateway_rest_api.hello_api.id
 }
+
+output "invoke_url_regional" {
+  description = "Full HTTPS URL for GET /hello via the REGIONAL-endpoint API (see api_regional.tf) — compare against invoke_url, which is EDGE-optimized"
+  value       = "${aws_api_gateway_stage.hello_stage_regional.invoke_url}/hello"
+}
+
+output "rest_api_id_regional" {
+  description = "ID of the regional-endpoint REST API"
+  value       = aws_api_gateway_rest_api.hello_api_regional.id
+}

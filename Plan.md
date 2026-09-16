@@ -4,23 +4,33 @@
 
 ## 1. Project Summary
 
-A REST API exposes `GET /hello`, backed by a single Lambda function that
-returns a JSON message and echoes back any query string parameters on the
-request.
+`GET /hello` is exposed by two independent REST APIs — one EDGE-optimized
+(the default endpoint type), one REGIONAL — both fronting the exact same
+Lambda function, which returns a JSON message and echoes back any query
+string parameters on the request. Two gateways in front of one function so
+their latency characteristics can be compared directly against an identical
+backend.
 
 ```
-                           HTTPS
-Postman / Browser ──────────────────────► API Gateway
-                                           REST API
-                                              │
-                                         GET /hello
-                                              │
-                                              ▼
-                                        AWS Lambda
-                                              │
-                                              ▼
-                                     {"message":"Hello"}
+        HTTPS                               HTTPS
+Postman / Browser                    Postman / Browser
+        │                                     │
+        ▼                                     ▼
+   API Gateway                            API Gateway
+ (EDGE-optimized)                         (REGIONAL)
+        │                                     │
+   GET /hello                            GET /hello
+        │                                     │
+        └───────────────┬─────────────────────┘
+                         ▼
+                    AWS Lambda
+                         │
+                         ▼
+               {"message":"Hello"}
 ```
+
+Both gateways route `GET /hello` to the same `aws_lambda_function.hello` —
+the function itself is not duplicated, only the API Gateway front end is.
 
 ### Response contract
 
@@ -73,9 +83,12 @@ api-gateway/
 │   ├── providers.tf          AWS provider + region
 │   ├── variables.tf          aws_region, stage_name
 │   ├── lambda.tf             IAM role, Lambda function resource
-│   ├── api.tf                REST API, /hello resource, GET method, integration,
-│   │                         Lambda permission, deployment, stage
-│   ├── outputs.tf            invoke_url, lambda_function_name, rest_api_id
+│   ├── api.tf                EDGE-optimized REST API, /hello resource, GET method,
+│   │                         integration, Lambda permission, deployment, stage
+│   ├── api_regional.tf       Same, but REGIONAL endpoint type — shares the same
+│   │                         Lambda function as api.tf, its own permission/deployment/stage
+│   ├── outputs.tf            invoke_url, invoke_url_regional, lambda_function_name,
+│   │                         rest_api_id, rest_api_id_regional
 │   ├── terraform.tfvars.example
 │   └── .terraform.lock.hcl   committed, pins provider versions
 ├── lambda/
@@ -125,18 +138,24 @@ parameters through.
 |---|---|
 | `aws_iam_role` (lambda exec role) | Trust policy allowing `lambda.amazonaws.com` to assume it |
 | `aws_iam_role_policy_attachment` | Attach `AWSLambdaBasicExecutionRole` (CloudWatch Logs write access) |
-| `aws_lambda_function` | Deploys `hello.zip`, handler `handler.handler`, runtime `python3.12` |
-| `aws_api_gateway_rest_api` | The REST API container (`hello-api`) |
-| `aws_api_gateway_resource` | Adds the `/hello` path under the API's root |
-| `aws_api_gateway_method` | `GET` on `/hello`, `authorization = "NONE"` |
-| `aws_api_gateway_integration` | `AWS_PROXY` integration from the method to the Lambda function |
-| `aws_lambda_permission` | Grants API Gateway's execution ARN permission to invoke the Lambda |
-| `aws_api_gateway_deployment` | Deploys the API configuration |
-| `aws_api_gateway_stage` | Publishes the deployment under a stage, e.g. `prod` (`var.stage_name`) |
+| `aws_lambda_function` | Deploys `hello.zip`, handler `handler.handler`, runtime `python3.12` — shared by both gateways below |
+| `aws_api_gateway_rest_api` (`hello_api`) | EDGE-optimized REST API container (`hello-api`) — no `endpoint_configuration` block means AWS defaults to `EDGE` |
+| `aws_api_gateway_resource` (`hello`) | Adds the `/hello` path under `hello_api`'s root |
+| `aws_api_gateway_method` (`get_hello`) | `GET` on `hello_api`'s `/hello`, `authorization = "NONE"` |
+| `aws_api_gateway_integration` (`lambda_integration`) | `AWS_PROXY` integration from `hello_api`'s method to `aws_lambda_function.hello` |
+| `aws_lambda_permission` (`apigw_invoke`) | Grants `hello_api`'s execution ARN permission to invoke the Lambda |
+| `aws_api_gateway_deployment` / `aws_api_gateway_stage` (`hello_deployment` / `hello_stage`) | Deploys and publishes `hello_api` under `var.stage_name` |
+| `aws_api_gateway_rest_api` (`hello_api_regional`, `api_regional.tf`) | Second REST API container (`hello-api-regional`) — `endpoint_configuration { types = ["REGIONAL"] }` explicitly, the deliberate contrast with `hello_api` |
+| `aws_api_gateway_resource` / `method` / `integration` (`*_regional`) | Same `/hello` `GET` route, on `hello_api_regional`, integrated to the **same** `aws_lambda_function.hello` — nothing about the function is duplicated |
+| `aws_lambda_permission` (`apigw_invoke_regional`) | A distinct statement, since a Lambda resource policy's `source_arn` scopes to one REST API's execution ARN — `hello_api_regional` has a different `api_id` than `hello_api`, so one statement can't cover both |
+| `aws_api_gateway_deployment` / `aws_api_gateway_stage` (`*_regional`) | Deploys and publishes `hello_api_regional`, under the same `var.stage_name` — both gateways live in the one AWS region this project's single `provider "aws"` block targets |
 
-`outputs.tf` exposes `invoke_url` = `https://<api-id>.execute-api.<region>.amazonaws.com/<stage>/hello`,
-so `terraform output invoke_url` feeds directly into `smoke_test.py` and into
-Postman.
+`outputs.tf` exposes `invoke_url` (EDGE, `hello_api`) and `invoke_url_regional`
+(REGIONAL, `hello_api_regional`), both in the form
+`https://<api-id>.execute-api.<region>.amazonaws.com/<stage>/hello` — the two
+`api-id` values differ since they're separate REST APIs, everything else
+about the URL shape is identical. Both feed directly into `smoke_test.py` and
+into Postman.
 
 The `archive_file` data source in `lambda.tf` produces `hello.zip` from
 `lambda/hello/handler.py` automatically on `terraform plan`/`apply` —
@@ -155,21 +174,33 @@ for pushing a handler change straight to the live function with `--deploy`
 (boto3 `update_function_code`) without a full `terraform apply`.
 
 ### `scripts/smoke_test.py`
-Checks the deployed API two ways:
+Checks the deployed API five ways, against both gateways:
 1. **Direct Lambda invoke**, no query params — `boto3.client("lambda").invoke(...)`,
    asserts `{"message": "Hello", "params": {}}`. Confirms the function itself
-   works, independent of API Gateway.
-2. **HTTP call through the deployed stage**, `?name=CS218` — `urllib.request`
-   against `terraform output invoke_url`, asserts
-   `{"message": "Hello", "params": {"name": "CS218"}}`. Confirms the full
-   path from the diagram, API Gateway included.
+   works, independent of either API Gateway.
+2. **HTTP call through the EDGE-optimized stage** (`--invoke-url`), `?name=CS218` —
+   `urllib.request`, asserts `{"message": "Hello", "params": {"name": "CS218"}}`.
+3. **HTTP call through the REGIONAL stage** (`--invoke-url-regional`), same
+   assertion. (2) and (3) failing independently of each other narrows a bug
+   to that specific gateway's wiring, not the shared function.
+4. **Connection-phase timing, EDGE endpoint** — shells out to `curl -w` for
+   DNS lookup, TCP connect, TLS handshake, time to first byte, total time,
+   and HTTP status code. These are libcurl-level timers; `urllib` has no
+   equivalent without hooking sockets directly, so this is a subprocess call
+   rather than a pure Python check.
+5. **Connection-phase timing, REGIONAL endpoint** — same breakdown, so (4)
+   and (5) can be compared directly. That comparison — does REGIONAL's lack
+   of a CloudFront hop actually change TCP/TLS/TTFB versus EDGE from this
+   particular network vantage point — is the reason this project runs two
+   gateways in front of one Lambda function at all.
 
-If (1) fails, the bug is in the Lambda handler. If (1) passes and (2) fails,
-the bug is in the API Gateway integration/permission/deployment.
+If (1) fails, the bug is in the Lambda handler. If (1) passes and (2) or (3)
+fails, the bug is in that gateway's integration/permission/deployment.
 
 ### `scripts/verify_teardown.py`
 Read-only check, run after `terraform destroy`: confirms the Lambda function,
-REST API, and IAM role no longer exist via boto3. Does not delete anything.
+both REST APIs (edge-optimized and regional), and IAM role no longer exist
+via boto3. Does not delete anything.
 
 ---
 
@@ -182,10 +213,16 @@ terraform init
 terraform apply
 
 terraform output invoke_url
+terraform output invoke_url_regional
+
 curl "$(terraform output -raw invoke_url)?name=CS218"
 # {"message": "Hello", "params": {"name": "CS218"}}
+curl "$(terraform output -raw invoke_url_regional)?name=CS218"
+# {"message": "Hello", "params": {"name": "CS218"}}
 
-python ../scripts/smoke_test.py --invoke-url "$(terraform output -raw invoke_url)"
+python ../scripts/smoke_test.py \
+    --invoke-url "$(terraform output -raw invoke_url)" \
+    --invoke-url-regional "$(terraform output -raw invoke_url_regional)"
 ```
 
 Manual verification alternative: a Postman `GET` request to the same URL,
@@ -214,3 +251,4 @@ Terraform state, so `terraform destroy` fully removes all billable resources.
 | `502 Bad Gateway` | Lambda handler path wrong (`handler.handler` mismatch) or handler throws before returning a valid `statusCode`/`body` shape |
 | Direct Lambda invoke works, HTTP call fails | Problem is in API Gateway config (integration type, method, deployment/stage), not the function |
 | `terraform apply` doesn't pick up handler code changes | `source_code_hash` not wired to the zip's hash |
+| One gateway works, the other 403s | Each gateway needs its own `aws_lambda_permission` — `apigw_invoke` and `apigw_invoke_regional` are separate statements because their `source_arn`s (different `execution_arn`s) can't be combined into one |
