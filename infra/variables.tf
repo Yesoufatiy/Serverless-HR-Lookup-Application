@@ -28,3 +28,27 @@ variable "stage_name" {
   # https://<api-id>.execute-api.<region>.amazonaws.com/prod/hello.
   default = "prod"
 }
+
+# ── HR Lookup application ──────────────────────────────────────────────
+
+variable "employee_table_name" {
+  description = "Name of the DynamoDB table holding employee records"
+  type        = string
+  default     = "Employees"
+}
+
+variable "cognito_domain_prefix" {
+  description = "Prefix for the Cognito Managed Login domain (must be globally unique across all AWS accounts) — e.g. \"hr-lookup-yourname\""
+  type        = string
+}
+
+variable "student_name" {
+  description = "Your name, stored as the Name field on the required student DynamoDB record"
+  type        = string
+}
+
+variable "student_employee_id" {
+  description = "EmployeeID to use for the required student record"
+  type        = string
+  default     = "1005"
+}

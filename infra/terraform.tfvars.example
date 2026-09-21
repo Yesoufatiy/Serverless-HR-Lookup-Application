@@ -4,3 +4,8 @@
 
 aws_region = "us-east-1"
 stage_name = "prod"
+
+# HR Lookup application — cognito_domain_prefix must be globally unique
+# across all AWS accounts (Cognito domains share one global namespace).
+cognito_domain_prefix = "hr-lookup-yourname"
+student_name           = "Your Name"
