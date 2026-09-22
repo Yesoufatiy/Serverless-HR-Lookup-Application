@@ -13,8 +13,8 @@ resource "aws_api_gateway_rest_api" "employee-directory-api" {
 # create a dependency cycle, since the UI Lambda (which needs this URL as
 # its OAuth redirect_uri) is itself a dependency of the stage's deployment.
 locals {
-  employee-directory-api_base_url   = "https://${aws_api_gateway_rest_api.employee-directory-api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.stage_name}/"
-  hr_cognito_domain = "${var.cognito_domain_prefix}.auth.${var.aws_region}.amazoncognito.com"
+  employee-directory-api_base_url = "https://${aws_api_gateway_rest_api.employee-directory-api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.stage_name}/"
+  hr_cognito_domain               = "${var.cognito_domain_prefix}.auth.${var.aws_region}.amazoncognito.com"
 }
 
 # ── GET / → UI Lambda, no auth ─────────────────────────────────────────

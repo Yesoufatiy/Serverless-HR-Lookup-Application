@@ -24,12 +24,12 @@ Serverless-HR-Lookup-Application/
 │   │                         integration, Lambda permission, deployment, stage
 │   ├── cognito.tf            Cognito authentication server
 │   ├── dynamodb.tf           DynamoDB table and items
-│   ├── outputs.tf            invoke_url, invoke_url_regional, lambda_function_name,
-│   │                         rest_api_id, rest_api_id_regional
+│   ├── outputs.tf            hr_app_url, hr_employee_lookup_url, cognito_user_pool_id,
+│   │                         cognito_client_id, cognito_managed_login_domain, employee_table_name
 │   ├── terraform.tfvars.example
 │   └── .terraform.lock.hcl   committed, pins provider versions
 └── lambda/                   Lambda function source (backend/handler.py and ui/handler.py)
-    └── backend/
+    ├── backend/
     │   └── handler.py        Lambda function source
     └── ui/
         └── handler.py        Lambda function source
@@ -238,7 +238,7 @@ is protected by the Cognito authorizer.
 
 Creates an IAM execution role for the backend Lambda.
 
-The role follows the principle of least privilege and allow only the DynamoDB operations required for the employee lookup.
+The role follows the principle of least privilege and allows only the DynamoDB operations required for the employee lookup.
 
 Does not expose AWS credentials in application code.
 
@@ -385,6 +385,10 @@ Include:
 - Relevant AWS service configuration screenshots
 - Exported API Gateway REST API definition
 
+```
+GET /
+GET /employee/{id}
+```
 For application and login screenshots, submit full browser screenshots that include the browser URL bar. The URL must be visible so that the deployed application endpoint can be verified.
 Also document:
 
@@ -402,19 +406,21 @@ Do not submit a client secret.
 
 | Resource | Purpose |
 |---|---|
-| `aws_iam_role` (lambda exec role) | Trust policy allowing `lambda.amazonaws.com` to assume it |
-| `aws_iam_role_policy_attachment` | Attach `AWSLambdaBasicExecutionRole` (CloudWatch Logs write access) |
-| `aws_lambda_function` | Deploys `hello.zip`, handler `handler.handler`, runtime `python3.12` — shared by both gateways below |
-| `aws_api_gateway_rest_api` (`hello_api`) | EDGE-optimized REST API container (`hello-api`) — no `endpoint_configuration` block means AWS defaults to `EDGE` |
-| `aws_api_gateway_resource` (`hello`) | Adds the `/hello` path under `hello_api`'s root |
-| `aws_api_gateway_method` (`get_hello`) | `GET` on `hello_api`'s `/hello`, `authorization = "NONE"` |
-| `aws_api_gateway_integration` (`lambda_integration`) | `AWS_PROXY` integration from `hello_api`'s method to `aws_lambda_function.hello` |
-| `aws_lambda_permission` (`apigw_invoke`) | Grants `hello_api`'s execution ARN permission to invoke the Lambda |
-| `aws_api_gateway_deployment` / `aws_api_gateway_stage` (`hello_deployment` / `hello_stage`) | Deploys and publishes `hello_api` under `var.stage_name` |
-| `aws_api_gateway_rest_api` (`hello_api_regional`, `api_regional.tf`) | Second REST API container (`hello-api-regional`) — `endpoint_configuration { types = ["REGIONAL"] }` explicitly, the deliberate contrast with `hello_api` |
-| `aws_api_gateway_resource` / `method` / `integration` (`*_regional`) | Same `/hello` `GET` route, on `hello_api_regional`, integrated to the **same** `aws_lambda_function.hello` — nothing about the function is duplicated |
-| `aws_lambda_permission` (`apigw_invoke_regional`) | A distinct statement, since a Lambda resource policy's `source_arn` scopes to one REST API's execution ARN — `hello_api_regional` has a different `api_id` than `hello_api`, so one statement can't cover both |
-| `aws_api_gateway_deployment` / `aws_api_gateway_stage` (`*_regional`) | Deploys and publishes `hello_api_regional`, under the same `var.stage_name` — both gateways live in the one AWS region this project's single `provider "aws"` block targets |
+| `aws_dynamodb_table` | Stores employee records using EmployeeID as the partition key |
+| `aws_dynamodb_table_item` | Creates the required sample employee records |
+| `aws_iam_role` | Execution role assumed by the backend Lambda |
+| `aws_iam_role_policy` | Grants the Lambda only the DynamoDB operations it needs |
+| `aws_lambda_function` | Backend Lambda that retrieves employees from DynamoDB |
+| `aws_lambda_function` | UI Lambda that serves the application frontend |
+| `aws_api_gateway_rest_api` | API Gateway REST API |
+| `aws_api_gateway_resource` | Creates /employee/{id} |
+| `aws_api_gateway_method` | Creates the GET method |
+| `aws_api_gateway_authorizer` | Connects API Gateway to Cognito |
+| `aws_api_gateway_integration` | Connects API Gateway to the backend Lambda |
+| `aws_lambda_permission` | Allows API Gateway to invoke the Lambda |
+| `aws_api_gateway_deployment` | Deploys the REST API configuration |
+| `aws_api_gateway_stage` | Publishes the deployment under the configured stage |
+| `Cognito` resources | User Pool, app client, domain, etc. |
 
 `outputs.tf` exposes `variables and url to be used later.
 
@@ -446,12 +452,6 @@ terraform destroy   # type "yes" to confirm
 cd ..
 ```
 
-No persistent state (no S3 bucket, no DynamoDB table) exists outside
-Terraform state, so `terraform destroy` fully removes all billable resources.
-
-There's no S3 bucket or database involved, so `terraform destroy` fully
-cleans up — no manual console steps needed afterward.
-
 Some AWS resources can incur charges even when they are not actively being used.
 It is your responsibility to verify that unnecessary resources have been removed after completing the assignment.
 
@@ -459,11 +459,9 @@ It is your responsibility to verify that unnecessary resources have been removed
 
 ## Cost
 
-Lambda (1M requests/month) is part of AWS's Always Free tier and is shared
-by both gateways — it's one function either way, not double the invocations
-per request. API Gateway REST API (1M calls/month **per API**) is free only
-within an account's 12-month new-customer window; running two REST APIs
-means two separate 1M-call allowances, not half of one shared allowance. At
-the handful of manual/smoke-test calls this project generates, expect
+Lambda (1M requests/month) is part of AWS's Always Free tier.
+API Gateway REST API (1M calls/month **per API**) is free only
+within an account's 12-month new-customer window. At
+the handful of manual calls this project generates, expect
 effectively $0 either way — but run `terraform destroy` when you're done so
 nothing is left running.
