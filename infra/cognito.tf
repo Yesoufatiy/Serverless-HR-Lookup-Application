@@ -5,6 +5,8 @@
 resource "aws_cognito_user_pool" "hr_users" {
   name = "hr-lookup-user-pool"
 
+  username_attributes = ["email"]
+
   auto_verified_attributes = ["email"]
 
   password_policy {

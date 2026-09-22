@@ -7,5 +7,6 @@ stage_name = "prod"
 
 # HR Lookup application — cognito_domain_prefix must be globally unique
 # across all AWS accounts (Cognito domains share one global namespace).
-cognito_domain_prefix = "hr-lookup-yourname"
-student_name           = "Your Name"
+cognito_domain_prefix = "hr-lookup-sjsu-fall2026-cs218-yourname"
+student_name          = "Your Name"
+student_employee_id   = "123456789"

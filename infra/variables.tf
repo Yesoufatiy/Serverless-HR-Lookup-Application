@@ -50,5 +50,4 @@ variable "student_name" {
 variable "student_employee_id" {
   description = "EmployeeID to use for the required student record"
   type        = string
-  default     = "1005"
 }

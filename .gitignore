@@ -45,6 +45,8 @@ terraform.rc
 
 # Lambda deployment package built by the archive_file data source / build_lambda.py
 hello.zip
+hr_backend.zip
+hr_ui.zip
 
 # Python
 __pycache__/
