@@ -2,7 +2,7 @@
 # Amazon Cognito: User Pool + Managed Login domain + public PKCE client
 # ─────────────────────────────────────────────────────────────────────────
 
-resource "aws_cognito_user_pool" "hr_users" {
+resource "aws_cognito_user_pool" "employee-directory-users" {
   name = "hr-lookup-user-pool"
 
   username_attributes = ["email"]
@@ -30,16 +30,16 @@ resource "aws_cognito_user_pool" "hr_users" {
 # browser is redirected to for the "Cognito Managed Login" step.
 resource "aws_cognito_user_pool_domain" "hr_domain" {
   domain       = var.cognito_domain_prefix
-  user_pool_id = aws_cognito_user_pool.hr_users.id
+  user_pool_id = aws_cognito_user_pool.employee-directory-users.id
 }
 
 # Public application client: no client secret, so the Authorization Code
 # Grant must (and does, via the UI Lambda's JS) use PKCE instead of a secret
 # to prove the token exchange request came from the same client that
 # started the flow.
-resource "aws_cognito_user_pool_client" "hr_ui_client" {
-  name         = "hr-lookup-ui-client"
-  user_pool_id = aws_cognito_user_pool.hr_users.id
+resource "aws_cognito_user_pool_client" "employee_ui_client" {
+  name         = "employee-directory-web"
+  user_pool_id = aws_cognito_user_pool.employee-directory-users.id
 
   generate_secret = false
 
@@ -50,8 +50,8 @@ resource "aws_cognito_user_pool_client" "hr_ui_client" {
 
   # Both point at the app's own root ("GET /"), which is where the UI
   # Lambda handles the returned authorization code and renders the app.
-  callback_urls = [local.hr_api_base_url]
-  logout_urls   = [local.hr_api_base_url]
+  callback_urls = [local.employee-directory-api_base_url]
+  logout_urls   = [local.employee-directory-api_base_url]
 
   prevent_user_existence_errors = "ENABLED"
 }

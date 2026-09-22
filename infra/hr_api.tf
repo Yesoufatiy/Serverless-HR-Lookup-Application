@@ -3,7 +3,7 @@
 # (Cognito-authorized, backend)
 # ─────────────────────────────────────────────────────────────────────────
 
-resource "aws_api_gateway_rest_api" "hr_api" {
+resource "aws_api_gateway_rest_api" "employee-directory-api" {
   name        = "hr-lookup-api"
   description = "Serverless HR lookup: GET / serves the UI, GET /employee/{id} is Cognito-protected"
 }
@@ -13,44 +13,44 @@ resource "aws_api_gateway_rest_api" "hr_api" {
 # create a dependency cycle, since the UI Lambda (which needs this URL as
 # its OAuth redirect_uri) is itself a dependency of the stage's deployment.
 locals {
-  hr_api_base_url   = "https://${aws_api_gateway_rest_api.hr_api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.stage_name}/"
+  employee-directory-api_base_url   = "https://${aws_api_gateway_rest_api.employee-directory-api.id}.execute-api.${var.aws_region}.amazonaws.com/${var.stage_name}/"
   hr_cognito_domain = "${var.cognito_domain_prefix}.auth.${var.aws_region}.amazoncognito.com"
 }
 
 # ── GET / → UI Lambda, no auth ─────────────────────────────────────────
 resource "aws_api_gateway_method" "hr_root_get" {
-  rest_api_id   = aws_api_gateway_rest_api.hr_api.id
-  resource_id   = aws_api_gateway_rest_api.hr_api.root_resource_id
+  rest_api_id   = aws_api_gateway_rest_api.employee-directory-api.id
+  resource_id   = aws_api_gateway_rest_api.employee-directory-api.root_resource_id
   http_method   = "GET"
   authorization = "NONE"
 }
 
 resource "aws_api_gateway_integration" "hr_root_get" {
-  rest_api_id             = aws_api_gateway_rest_api.hr_api.id
-  resource_id             = aws_api_gateway_rest_api.hr_api.root_resource_id
+  rest_api_id             = aws_api_gateway_rest_api.employee-directory-api.id
+  resource_id             = aws_api_gateway_rest_api.employee-directory-api.root_resource_id
   http_method             = aws_api_gateway_method.hr_root_get.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.hr_ui.invoke_arn
+  uri                     = aws_lambda_function.employee_ui.invoke_arn
 }
 
-resource "aws_lambda_permission" "hr_ui_invoke" {
+resource "aws_lambda_permission" "employee_ui_invoke" {
   statement_id  = "AllowAPIGatewayInvokeHRUi"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.hr_ui.function_name
+  function_name = aws_lambda_function.employee_ui.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.hr_api.execution_arn}/*/GET/"
+  source_arn    = "${aws_api_gateway_rest_api.employee-directory-api.execution_arn}/*/GET/"
 }
 
 # ── /employee/{id} → Backend Lambda, Cognito authorizer ────────────────
 resource "aws_api_gateway_resource" "employee" {
-  rest_api_id = aws_api_gateway_rest_api.hr_api.id
-  parent_id   = aws_api_gateway_rest_api.hr_api.root_resource_id
+  rest_api_id = aws_api_gateway_rest_api.employee-directory-api.id
+  parent_id   = aws_api_gateway_rest_api.employee-directory-api.root_resource_id
   path_part   = "employee"
 }
 
 resource "aws_api_gateway_resource" "employee_id" {
-  rest_api_id = aws_api_gateway_rest_api.hr_api.id
+  rest_api_id = aws_api_gateway_rest_api.employee-directory-api.id
   parent_id   = aws_api_gateway_resource.employee.id
   path_part   = "{id}"
 }
@@ -60,13 +60,13 @@ resource "aws_api_gateway_resource" "employee_id" {
 # ever invokes the backend Lambda.
 resource "aws_api_gateway_authorizer" "cognito" {
   name          = "hr-cognito-authorizer"
-  rest_api_id   = aws_api_gateway_rest_api.hr_api.id
+  rest_api_id   = aws_api_gateway_rest_api.employee-directory-api.id
   type          = "COGNITO_USER_POOLS"
-  provider_arns = [aws_cognito_user_pool.hr_users.arn]
+  provider_arns = [aws_cognito_user_pool.employee-directory-users.arn]
 }
 
 resource "aws_api_gateway_method" "get_employee" {
-  rest_api_id   = aws_api_gateway_rest_api.hr_api.id
+  rest_api_id   = aws_api_gateway_rest_api.employee-directory-api.id
   resource_id   = aws_api_gateway_resource.employee_id.id
   http_method   = "GET"
   authorization = "COGNITO_USER_POOLS"
@@ -78,25 +78,25 @@ resource "aws_api_gateway_method" "get_employee" {
 }
 
 resource "aws_api_gateway_integration" "get_employee" {
-  rest_api_id             = aws_api_gateway_rest_api.hr_api.id
+  rest_api_id             = aws_api_gateway_rest_api.employee-directory-api.id
   resource_id             = aws_api_gateway_resource.employee_id.id
   http_method             = aws_api_gateway_method.get_employee.http_method
   integration_http_method = "POST"
   type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.hr_backend.invoke_arn
+  uri                     = aws_lambda_function.employee-lookup.invoke_arn
 }
 
-resource "aws_lambda_permission" "hr_backend_invoke" {
+resource "aws_lambda_permission" "employee-lookup_invoke" {
   statement_id  = "AllowAPIGatewayInvokeHRBackend"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.hr_backend.function_name
+  function_name = aws_lambda_function.employee-lookup.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.hr_api.execution_arn}/*/GET/employee/*"
+  source_arn    = "${aws_api_gateway_rest_api.employee-directory-api.execution_arn}/*/GET/employee/*"
 }
 
 # ── Deploy + publish ─────────────────────────────────────────────────────
 resource "aws_api_gateway_deployment" "hr" {
-  rest_api_id = aws_api_gateway_rest_api.hr_api.id
+  rest_api_id = aws_api_gateway_rest_api.employee-directory-api.id
 
   triggers = {
     redeployment = sha1(jsonencode([
@@ -122,6 +122,6 @@ resource "aws_api_gateway_deployment" "hr" {
 
 resource "aws_api_gateway_stage" "hr" {
   deployment_id = aws_api_gateway_deployment.hr.id
-  rest_api_id   = aws_api_gateway_rest_api.hr_api.id
+  rest_api_id   = aws_api_gateway_rest_api.employee-directory-api.id
   stage_name    = var.stage_name
 }

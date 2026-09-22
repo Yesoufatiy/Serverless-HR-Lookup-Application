@@ -19,7 +19,7 @@ terraform {
     }
     # The archive provider has no AWS API of its own — it's a local utility
     # provider used purely to zip files on disk (see the `archive_file` data
-    # source in lambda.tf). Lambda requires code to be uploaded as a zip, so
+    # source in hr_lambda.tf). Lambda requires code to be uploaded as a zip, so
     # this replaces what would otherwise be a manual `zip` shell command.
     archive = {
       source  = "hashicorp/archive"

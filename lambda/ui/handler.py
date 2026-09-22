@@ -23,18 +23,18 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 </head>
 <body>
   <div id="topbar">
-    <h1>HR Employee Lookup</h1>
+    <h1>Employee Directory</h1>
     <button id="logout-btn" style="display:none">Log out</button>
   </div>
 
   <div id="login-view">
-    <p>Please sign in to look up employee records.</p>
-    <button id="login-btn">Log in</button>
+    <!-- <p>Please sign in to look up employee records.</p> -->
+    <button id="login-btn">Log in with Cognito</button>
   </div>
 
   <div id="app-view" style="display:none">
     <form id="search-form">
-      <input id="employee-id" placeholder="Employee ID (e.g. 1001)" required>
+      <input id="employee-id" placeholder="Employee ID" required>
       <button type="submit">Search</button>
     </form>
     <p id="error" style="display:none"></p>
@@ -147,7 +147,7 @@ async function searchEmployee(id) {
   });
 
   if (resp.status === 404) {
-    errorEl.textContent = "No employee found for that ID.";
+    errorEl.textContent = "Employee not found";
     errorEl.style.display = "block";
     return;
   }
